@@ -1,12 +1,19 @@
 import requests
 from requests.models import Response
+from requests.auth import AuthBase as AuthBase
 
 
-def get(url: str, force_debug: bool = False, headers: dict = None) -> Response:
-    return request(method='get', url=url, headers=headers, force_debug=force_debug)
+def get(url: str, force_debug: bool = False, headers: dict | None = None) -> Response:
+    return request(method="get", url=url, headers=headers, force_debug=force_debug)
 
 
-def request(method: str, url: str, json: dict = None, headers: dict = None, force_debug: bool = False) -> Response:
+def request(
+    method: str,
+    url: str,
+    json: dict | None = None,
+    headers: dict | None = None,
+    force_debug: bool = False,
+) -> Response:
     try:
         response = requests.request(method=method, url=url, json=json, headers=headers)
         if force_debug:
@@ -19,18 +26,18 @@ def request(method: str, url: str, json: dict = None, headers: dict = None, forc
 
 
 def debug_request(
-        url: str,
-        method: str,
-        response: Response = None,
-        payload: dict = None,
-        headers: dict = None,
+    url: str,
+    method: str,
+    response: Response | None = None,
+    payload: dict | None = None,
+    headers: dict | None = None,
 ) -> None:
-    print('#########################')
-    print(f'Debugging request to {url}')
-    print(f'Method: {method}')
-    print(f'Payload: {payload}')
-    print(f'Headers: {headers}')
+    print("#########################")
+    print(f"Debugging request to {url}")
+    print(f"Method: {method}")
+    print(f"Payload: {payload}")
+    print(f"Headers: {headers}")
     if response is not None:
-        print(f'Response: {response}')
+        print(f"Response: {response}")
         print(response.json())
-    print('#########################')
+    print("#########################")

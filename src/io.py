@@ -1,19 +1,19 @@
 import argparse
 from os import getenv
 
-DEFAULT_GITHUB_API_URL = 'https://api.github.com'
+DEFAULT_GITHUB_API_URL = "https://api.github.com"
 
 
 class Options:
     def __init__(
-            self,
-            ignore_branches: list[str],
-            last_commit_age_days: int,
-            allowed_prefixes: list[str],
-            github_token: str,
-            github_repo: str,
-            dry_run: bool = True,
-            github_base_url: str = DEFAULT_GITHUB_API_URL
+        self,
+        ignore_branches: list[str],
+        last_commit_age_days: int,
+        allowed_prefixes: list[str],
+        github_token: str,
+        github_repo: str,
+        dry_run: bool = True,
+        github_base_url: str = DEFAULT_GITHUB_API_URL,
     ):
         self.ignore_branches = ignore_branches
         self.last_commit_age_days = last_commit_age_days
@@ -27,13 +27,15 @@ class Options:
 class InputParser:
     @staticmethod
     def get_args() -> argparse.Namespace:
-        parser = argparse.ArgumentParser('Github Actions Delete Old Branches')
+        parser = argparse.ArgumentParser("Github Actions Delete Old Branches")
 
-        parser.add_argument("--ignore-branches", help="Comma-separated list of branches to ignore")
+        parser.add_argument(
+            "--ignore-branches", help="Comma-separated list of branches to ignore"
+        )
 
         parser.add_argument(
             "--allowed-prefixes",
-            help="Comma-separated list of prefixes a branch must match to be deleted"
+            help="Comma-separated list of prefixes a branch must match to be deleted",
         )
 
         parser.add_argument("--github-token", required=True)
@@ -41,7 +43,7 @@ class InputParser:
         parser.add_argument(
             "--github-base-url",
             default=DEFAULT_GITHUB_API_URL,
-            help="The API base url to be used in requests to GitHub Enterprise"
+            help="The API base url to be used in requests to GitHub Enterprise",
         )
 
         parser.add_argument(
@@ -55,7 +57,7 @@ class InputParser:
             "--dry-run",
             choices=["yes", "no"],
             default="yes",
-            help="Whether to delete branches at all. Defaults to 'yes'. Possible values: yes, no (case sensitive)"
+            help="Whether to delete branches at all. Defaults to 'yes'. Possible values: yes, no (case sensitive)",
         )
 
         return parser.parse_args()
@@ -64,17 +66,24 @@ class InputParser:
         args = self.get_args()
 
         branches_raw: str = "" if args.ignore_branches is None else args.ignore_branches
-        ignore_branches = branches_raw.split(',')
-        if ignore_branches == ['']:
+        ignore_branches = branches_raw.split(",")
+        if ignore_branches == [""]:
             ignore_branches = []
 
-        allowed_prefixes_raw: str = "" if args.allowed_prefixes is None else args.allowed_prefixes
-        allowed_prefixes = allowed_prefixes_raw.split(',')
-        if allowed_prefixes == ['']:
+        allowed_prefixes_raw: str = (
+            "" if args.allowed_prefixes is None else args.allowed_prefixes
+        )
+        allowed_prefixes = allowed_prefixes_raw.split(",")
+        if allowed_prefixes == [""]:
             allowed_prefixes = []
 
         # Dry run can only be either `true` or `false`, as strings due to github actions input limitations
-        dry_run = False if args.dry_run == 'no' else True
+        dry_run = False if args.dry_run == "no" else True
+
+        repo = getenv("GITHUB_REPOSITORY")
+        if not repo:
+            msg = f"Invalid repository name {repo}"
+            raise ValueError(msg)
 
         return Options(
             ignore_branches=ignore_branches,
@@ -82,14 +91,17 @@ class InputParser:
             allowed_prefixes=allowed_prefixes,
             dry_run=dry_run,
             github_token=args.github_token,
-            github_repo=getenv('GITHUB_REPOSITORY'),
-            github_base_url=args.github_base_url
+            github_repo=repo,
+            github_base_url=args.github_base_url,
         )
 
 
 def format_output(output_strings: dict) -> None:
-    file_path = getenv('GITHUB_OUTPUT')
+    file_path = getenv("GITHUB_OUTPUT")
+    if not file_path:
+        msg = f"missing GITHUB_OUTPUT file: {file_path}"
+        raise ValueError(msg)
 
-    with open(file_path, "a") as gh_output:
+    with open(file_path, "a", encoding="utf-8") as gh_output:
         for name, value in output_strings.items():
-            gh_output.write(f'{name}={value}\n')
+            gh_output.write(f"{name}={value}\n")
