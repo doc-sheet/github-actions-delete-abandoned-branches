@@ -11,20 +11,16 @@ class GithubAuth(requests.AuthBase):
 
     def __call__(self, r):
         r.headers["Authorization"] = f"token {self.token}"
+        r.headers["content-type"] = "application/vnd.github.v3+json"
         return r
 
 
 class Github:
     def __init__(self, repo: str, token: str, base_url: str):
-        self.token = token
         self.repo = repo
         self.base_url = base_url
-
-    def make_headers(self) -> dict:
-        return {
-            "authorization": f"Bearer {self.token}",
-            "content-type": "application/vnd.github.v3+json",
-        }
+        self.session = requests.requests.Session()
+        self.session.auth = GithubAuth(token)
 
     def get_paginated_branches_url(self, page: int = 0) -> str:
         return f"{self.base_url}/repos/{self.repo}/branches?protected=false&per_page=30&page={page}"
@@ -39,9 +35,8 @@ class Github:
         default_branch = self.get_default_branch()
 
         url = self.get_paginated_branches_url()
-        headers = self.make_headers()
 
-        response = requests.get(url=url, headers=headers)
+        response = requests.get(url=url, session=self.session)
         if response.status_code != 200:
             raise RuntimeError(
                 f"Failed to make request to {url}. {response} {response.json()}"
@@ -120,7 +115,8 @@ class Github:
             current_page += 1
 
             response = requests.get(
-                url=self.get_paginated_branches_url(page=current_page), headers=headers
+                url=self.get_paginated_branches_url(page=current_page),
+                session=self.session,
             )
             if response.status_code != 200:
                 raise RuntimeError(
@@ -134,9 +130,7 @@ class Github:
             print(f"Deleting branch `{branch}`...")
             url = f'{self.base_url}/repos/{self.repo}/git/refs/heads/{branch.replace("#", "%23")}'
 
-            response = requests.request(
-                method="DELETE", url=url, headers=self.make_headers()
-            )
+            response = requests.request(method="DELETE", url=url, session=self.session)
             if response.status_code != 204:
                 print(f"Failed to delete branch `{branch}`")
                 raise RuntimeError(
@@ -147,9 +141,8 @@ class Github:
 
     def get_default_branch(self) -> str:
         url = f"{self.base_url}/repos/{self.repo}"
-        headers = self.make_headers()
 
-        response = requests.get(url=url, headers=headers)
+        response = requests.get(url=url, session=self.session)
 
         if response.status_code != 200:
             raise RuntimeError(
@@ -163,10 +156,9 @@ class Github:
         Returns true if commit is part of an open pull request or the branch is the base for a pull request
         """
         url = f"{self.base_url}/repos/{self.repo}/commits/{commit_hash}/pulls"
-        headers = self.make_headers()
-        headers["accept"] = "application/vnd.github.groot-preview+json"
+        headers = {"accept": "application/vnd.github.groot-preview+json"}
 
-        response = requests.get(url=url, headers=headers)
+        response = requests.get(url=url, headers=headers, session=self.session)
         if response.status_code != 200:
             raise RuntimeError(
                 f"Failed to make request to {url}. {response} {response.json()}"
@@ -184,10 +176,9 @@ class Github:
         Returns true if the given branch is base for another pull request.
         """
         url = f"{self.base_url}/repos/{self.repo}/pulls?base={branch}"
-        headers = self.make_headers()
-        headers["accept"] = "application/vnd.github.groot-preview+json"
+        headers = {"accept": "application/vnd.github.groot-preview+json"}
 
-        response = requests.get(url=url, headers=headers)
+        response = requests.get(url=url, headers=headers, session=self.session)
         if response.status_code != 200:
             raise RuntimeError(
                 f"Failed to make request to {url}. {response} {response.json()}"
@@ -196,7 +187,7 @@ class Github:
         return len(response.json()) > 0
 
     def is_commit_older_than(self, commit_url: str, older_than_days: int):
-        response = requests.get(url=commit_url, headers=self.make_headers())
+        response = requests.get(url=commit_url, session=self.session)
         if response.status_code != 200:
             raise RuntimeError(
                 f"Failed to make request to {commit_url}. {response} {response.json()}"

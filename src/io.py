@@ -1,27 +1,20 @@
 import argparse
+from dataclasses import dataclass
 from os import getenv
+from .requests import request_counter
 
 DEFAULT_GITHUB_API_URL = "https://api.github.com"
 
 
+@dataclass(kw_only=True)
 class Options:
-    def __init__(
-        self,
-        ignore_branches: list[str],
-        last_commit_age_days: int,
-        allowed_prefixes: list[str],
-        github_token: str,
-        github_repo: str,
-        dry_run: bool = True,
-        github_base_url: str = DEFAULT_GITHUB_API_URL,
-    ):
-        self.ignore_branches = ignore_branches
-        self.last_commit_age_days = last_commit_age_days
-        self.allowed_prefixes = allowed_prefixes
-        self.github_token = github_token
-        self.github_repo = github_repo
-        self.dry_run = dry_run
-        self.github_base_url = github_base_url
+    ignore_branches: list[str]
+    last_commit_age_days: int
+    allowed_prefixes: list[str]
+    github_token: str
+    github_repo: str
+    dry_run: bool = True
+    github_base_url: str = DEFAULT_GITHUB_API_URL
 
 
 class InputParser:
@@ -50,6 +43,13 @@ class InputParser:
             "--last-commit-age-days",
             help="How old in days must be the last commit into the branch for the branch to be deleted",
             default=60,
+            type=int,
+        )
+
+        parser.add_argument(
+            "--max_requests",
+            help="Maximum requests per run (0 - unlimited)",
+            default=0,
             type=int,
         )
 
@@ -84,6 +84,8 @@ class InputParser:
         if not repo:
             msg = f"Invalid repository name {repo}"
             raise ValueError(msg)
+
+        request_counter.set_max(args.max_requests)
 
         return Options(
             ignore_branches=ignore_branches,
