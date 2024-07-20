@@ -32,16 +32,31 @@ inputs:
     default: "https://api.github.com"
 
 outputs:
-  deleted_branches: # id of output
+  deleted_branches:  # id of output
     description: 'Branches that have been deleted, if any'
 
 runs:
-  using: 'docker'
-  image: 'docker://phpdockerio/github-actions-delete-abandoned-branches:v2'
-  args:
-    - --ignore-branches=${{ inputs.ignore_branches }}
-    - --last-commit-age-days=${{ inputs.last_commit_age_days }}
-    - --allowed-prefixes=${{ inputs.allowed_prefixes }}
-    - --dry-run=${{ inputs.dry_run }}
-    - --github-token=${{ inputs.github_token }}
-    - --github-base-url=${{ inputs.github_base_url }}
+  using: composite
+  steps:
+    - name: Install python
+      uses: getsentry/action-setup-venv@f0daafa9688e48f939cace0378a46f2d422bd81f
+      with:
+        python-version: '3.11'
+        cache-dependency-path: |
+          ${{ github.action_path }}/requirements.txt
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --prefer-binary -r "${GITHUB_ACTION_PATH}/requirements.txt"
+      shell: bash
+
+    - name: Run action
+      run: >
+        python "${GITHUB_ACTION_PATH}/main.py"
+        "--ignore-branches=${{ inputs.ignore_branches }}"
+        "--last-commit-age-days=${{ inputs.last_commit_age_days }}"
+        "--allowed-prefixes=${{ inputs.allowed_prefixes }}"
+        "--dry-run=${{ inputs.dry_run }}"
+        "--github-token=${{ inputs.github_token }}"
+        "--github-base-url=${{ inputs.github_base_url }}"
+      shell: bash
