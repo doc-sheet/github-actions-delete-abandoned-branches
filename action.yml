@@ -41,7 +41,7 @@ runs:
     - name: Install python
       uses: getsentry/action-setup-venv@f0daafa9688e48f939cace0378a46f2d422bd81f
       with:
-        python-version: '3.11'
+        python-version: '3.12'
         cache-dependency-path: |
           ${{ github.action_path }}/requirements.txt
 

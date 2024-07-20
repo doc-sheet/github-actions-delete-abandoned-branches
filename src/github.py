@@ -1,66 +1,75 @@
 from datetime import datetime
-
+from typing import AsyncIterator
 from src import requests
+
+
+class GithubAuth(requests.AuthBase):
+    """Attaches HTTP Github Authentication to the given Request object"""
+
+    def __init__(self, token: str):
+        self.token = token
+
+    def __call__(self, r):
+        r.headers["Authorization"] = f"token {self.token}"
+        r.headers["content-type"] = "application/vnd.github.v3+json"
+        return r
 
 
 class Github:
     def __init__(self, repo: str, token: str, base_url: str):
-        self.token = token
         self.repo = repo
         self.base_url = base_url
-
-    def make_headers(self) -> dict:
-        return {
-            'authorization': f'Bearer {self.token}',
-            'content-type': 'application/vnd.github.v3+json',
-        }
+        self.session = requests.requests.Session()
+        self.session.auth = GithubAuth(token)
 
     def get_paginated_branches_url(self, page: int = 0) -> str:
-        return f'{self.base_url}/repos/{self.repo}/branches?protected=false&per_page=30&page={page}'
+        return f"{self.base_url}/repos/{self.repo}/branches?protected=false&per_page=30&page={page}"
 
-    def get_deletable_branches(
-            self,
-            last_commit_age_days: int,
-            ignore_branches: list[str],
-            allowed_prefixes: list[str]
-    ) -> list[str]:
+    async def get_deletable_branches(
+        self,
+        last_commit_age_days: int,
+        ignore_branches: list[str],
+        allowed_prefixes: list[str],
+    ) -> AsyncIterator[str]:
         # Default branch might not be protected
         default_branch = self.get_default_branch()
 
         url = self.get_paginated_branches_url()
-        headers = self.make_headers()
 
-        response = requests.get(url=url, headers=headers)
+        response = requests.get(url=url, session=self.session)
         if response.status_code != 200:
-            raise RuntimeError(f'Failed to make request to {url}. {response} {response.json()}')
+            raise RuntimeError(
+                f"Failed to make request to {url}. {response} {response.json()}"
+            )
 
-        deletable_branches = []
-        branch: dict
+        branch: dict = {}
         branches: list = response.json()
         current_page = 1
 
         while len(branches) > 0:
             for branch in branches:
-                branch_name = branch.get('name')
+                branch_name = branch["name"]
 
-                commit_hash = branch.get('commit', {}).get('sha')
-                commit_url = branch.get('commit', {}).get('url')
+                commit_hash = branch.get("commit", {}).get("sha")
+                commit_url = branch.get("commit", {}).get("url")
 
-                print(f'Analyzing branch `{branch_name}`...')
+                print(f"Analyzing branch `{branch_name}`...")
 
                 # Immediately discard protected branches, default branch, ignored branches and branches not in prefix
                 if branch_name == default_branch:
-                    print(f'Ignoring `{branch_name}` because it is the default branch')
+                    print(f"Ignoring `{branch_name}` because it is the default branch")
                     continue
 
                 # We're already retrieving non-protected branches from the API, but it pays being careful when dealing
                 # with third party apis
-                if branch.get('protected') is True:
-                    print(f'Ignoring `{branch_name}` because it is protected')
+                if branch.get("protected") is True:
+                    print(f"Ignoring `{branch_name}` because it is protected")
                     continue
 
                 if branch_name in ignore_branches:
-                    print(f'Ignoring `{branch_name}` because it is on the list of ignored branches')
+                    print(
+                        f"Ignoring `{branch_name}` because it is on the list of ignored branches"
+                    )
                     continue
 
                 # If allowed_prefixes are provided, only consider branches that match one of the prefixes
@@ -70,76 +79,94 @@ class Github:
                         if branch_name.startswith(prefix):
                             found_prefix = True
                     if found_prefix is False:
-                        print(f'Ignoring `{branch_name}` because it does not match any provided allowed_prefixes')
+                        print(
+                            f"Ignoring `{branch_name}` because it does not match any provided allowed_prefixes"
+                        )
                         continue
 
                 # Move on if commit is in an open pull request
                 if self.has_open_pulls(commit_hash=commit_hash):
-                    print(f'Ignoring `{branch_name}` because it has open pull requests')
+                    print(f"Ignoring `{branch_name}` because it has open pull requests")
                     continue
 
                 # Move on if branch is base for a pull request
                 if self.is_pull_request_base(branch=branch_name):
-                    print(f'Ignoring `{branch_name}` because it is the base for a pull request of another branch')
+                    print(
+                        f"Ignoring `{branch_name}` because it is the base for a pull request of another branch"
+                    )
                     continue
 
                 # Move on if last commit is newer than last_commit_age_days
-                if self.is_commit_older_than(commit_url=commit_url, older_than_days=last_commit_age_days) is False:
-                    print(f'Ignoring `{branch_name}` because last commit is newer than {last_commit_age_days} days')
+                if (
+                    self.is_commit_older_than(
+                        commit_url=commit_url, older_than_days=last_commit_age_days
+                    )
+                    is False
+                ):
+                    print(
+                        f"Ignoring `{branch_name}` because last commit is newer than {last_commit_age_days} days"
+                    )
                     continue
 
-                print(f'Branch `{branch_name}` meets the criteria for deletion')
-                deletable_branches.append(branch_name)
+                print(f"Branch `{branch_name}` meets the criteria for deletion")
+                yield branch_name
 
             # Re-request next page
             current_page += 1
 
-            response = requests.get(url=self.get_paginated_branches_url(page=current_page), headers=headers)
+            response = requests.get(
+                url=self.get_paginated_branches_url(page=current_page),
+                session=self.session,
+            )
             if response.status_code != 200:
-                raise RuntimeError(f'Failed to make request to {url}. {response} {response.json()}')
+                raise RuntimeError(
+                    f"Failed to make request to {url}. {response} {response.json()}"
+                )
 
-            branches: list = response.json()
+            branches = response.json()
 
-        return deletable_branches
-
-    def delete_branches(self, branches: list[str]) -> None:
+    async def delete_branches(self, branches: list[str]) -> None:
         for branch in branches:
-            print(f'Deleting branch `{branch}`...')
+            print(f"Deleting branch `{branch}`...")
             url = f'{self.base_url}/repos/{self.repo}/git/refs/heads/{branch.replace("#", "%23")}'
 
-            response = requests.request(method='DELETE', url=url, headers=self.make_headers())
+            response = requests.request(method="DELETE", url=url, session=self.session)
             if response.status_code != 204:
-                print(f'Failed to delete branch `{branch}`')
-                raise RuntimeError(f'Failed to make DELETE request to {url}. {response} {response.json()}')
+                print(f"Failed to delete branch `{branch}`")
+                raise RuntimeError(
+                    f"Failed to make DELETE request to {url}. {response} {response.json()}"
+                )
 
-            print(f'Branch `{branch}` DELETED!')
+            print(f"Branch `{branch}` DELETED!")
 
     def get_default_branch(self) -> str:
-        url = f'{self.base_url}/repos/{self.repo}'
-        headers = self.make_headers()
+        url = f"{self.base_url}/repos/{self.repo}"
 
-        response = requests.get(url=url, headers=headers)
+        response = requests.get(url=url, session=self.session)
 
         if response.status_code != 200:
-            raise RuntimeError('Error: could not determine default branch. This is a big one.')
+            raise RuntimeError(
+                "Error: could not determine default branch. This is a big one."
+            )
 
-        return response.json().get('default_branch')
+        return response.json().get("default_branch")
 
     def has_open_pulls(self, commit_hash: str) -> bool:
         """
         Returns true if commit is part of an open pull request or the branch is the base for a pull request
         """
-        url = f'{self.base_url}/repos/{self.repo}/commits/{commit_hash}/pulls'
-        headers = self.make_headers()
-        headers['accept'] = 'application/vnd.github.groot-preview+json'
+        url = f"{self.base_url}/repos/{self.repo}/commits/{commit_hash}/pulls"
+        headers = {"accept": "application/vnd.github.groot-preview+json"}
 
-        response = requests.get(url=url, headers=headers)
+        response = requests.get(url=url, headers=headers, session=self.session)
         if response.status_code != 200:
-            raise RuntimeError(f'Failed to make request to {url}. {response} {response.json()}')
+            raise RuntimeError(
+                f"Failed to make request to {url}. {response} {response.json()}"
+            )
 
         pull_request: dict
         for pull_request in response.json():
-            if pull_request.get('state') == 'open':
+            if pull_request.get("state") == "open":
                 return True
 
         return False
@@ -148,37 +175,42 @@ class Github:
         """
         Returns true if the given branch is base for another pull request.
         """
-        url = f'{self.base_url}/repos/{self.repo}/pulls?base={branch}'
-        headers = self.make_headers()
-        headers['accept'] = 'application/vnd.github.groot-preview+json'
+        url = f"{self.base_url}/repos/{self.repo}/pulls?base={branch}"
+        headers = {"accept": "application/vnd.github.groot-preview+json"}
 
-        response = requests.get(url=url, headers=headers)
+        response = requests.get(url=url, headers=headers, session=self.session)
         if response.status_code != 200:
-            raise RuntimeError(f'Failed to make request to {url}. {response} {response.json()}')
+            raise RuntimeError(
+                f"Failed to make request to {url}. {response} {response.json()}"
+            )
 
         return len(response.json()) > 0
 
     def is_commit_older_than(self, commit_url: str, older_than_days: int):
-        response = requests.get(url=commit_url, headers=self.make_headers())
+        response = requests.get(url=commit_url, session=self.session)
         if response.status_code != 200:
-            raise RuntimeError(f'Failed to make request to {commit_url}. {response} {response.json()}')
+            raise RuntimeError(
+                f"Failed to make request to {commit_url}. {response} {response.json()}"
+            )
 
-        commit: dict = response.json().get('commit', {})
-        committer: dict = commit.get('committer', {})
-        author: dict = commit.get('author', {})
+        commit: dict = response.json().get("commit", {})
+        committer: dict = commit.get("committer", {})
+        author: dict = commit.get("author", {})
 
         # Get date of the committer (instead of the author) as the last commit could be old but just applied
         # for instance coming from a merge where the committer is bringing in commits from other authors
         # Fall back to author's commit date if none found for whatever bizarre reason
-        commit_date_raw = committer.get('date', author.get('date'))
+        commit_date_raw = committer.get("date", author.get("date"))
         if commit_date_raw is None:
-            print(f"Warning: could not determine commit date for {commit_url}. Assuming it's not old enough to delete")
+            print(
+                f"Warning: could not determine commit date for {commit_url}. Assuming it's not old enough to delete"
+            )
             return False
 
         # Dates are formatted like so: '2021-02-04T10:52:40Z'
         commit_date = datetime.strptime(commit_date_raw, "%Y-%m-%dT%H:%M:%SZ")
 
         delta = datetime.now() - commit_date
-        print(f'Last commit was on {commit_date_raw} ({delta.days} days ago)')
+        print(f"Last commit was on {commit_date_raw} ({delta.days} days ago)")
 
         return delta.days > older_than_days
