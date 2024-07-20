@@ -1,0 +1,18 @@
+---
+
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: sunday
+    commit-message:
+      prefix: pip
+      include: scope
+    labels:
+      - pip dependencies
+    groups:
+      direct-updates:
+        patterns:
+          - '*'
